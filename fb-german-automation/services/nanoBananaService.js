@@ -4,6 +4,7 @@ import path from 'path';
 import axios from 'axios';
 import FormData from 'form-data';
 import { GoogleGenAI } from '@google/genai';
+import { googleFlowService } from './googleFlowService.js';
 
 const UPLOADS_DIR = path.resolve('uploads');
 const REMASTERED_DIR = path.join(UPLOADS_DIR, 'remastered');
@@ -48,6 +49,22 @@ export class NanoBananaService {
     }
 
     console.log(`[NanoBananaService] Starting image remastering for FBID: ${fbid}...`);
+
+    // 1. Fully Automated Google Flow PRO (Nano Banana 2.1) Generation
+    if (googleFlowService.isConfigured()) {
+      try {
+        const promptCore = originalStoryEn ? originalStoryEn.slice(0, 300) : 'emotional dramatic confrontational scene';
+        const flowPrompt = `Cinematic 8k photorealistic drama, ${promptCore}. High detail, altered character faces, altered stylish outfits, preserve deep emotional expressions, crying, regret, sorrow, dramatic lighting, identical camera angle, ultra realistic cinematic quality, no text, no watermark, no logos.`;
+        
+        console.log(`[NanoBananaService] 🍌 Running automated Google Flow PRO (Nano Banana 2.1) generation for FBID: ${fbid}...`);
+        const flowResult = await googleFlowService.generateImageWithFlow(flowPrompt, outputPath);
+        if (flowResult && fs.existsSync(flowResult)) {
+          return flowResult;
+        }
+      } catch (flowErr) {
+        console.warn(`[NanoBananaService] Google Flow generation notice: ${flowErr.message}. Falling back...`);
+      }
+    }
 
     const nanoUrl = this.getNanoBananaUrl();
     const nanoKey = this.getNanoBananaKey();

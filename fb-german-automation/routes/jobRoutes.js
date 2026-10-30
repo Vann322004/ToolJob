@@ -206,6 +206,38 @@ router.post('/jobs/:id/import-flow', async (req, res) => {
 });
 
 /**
+ * POST /api/jobs/:id/auto-flow
+ * Automatically launch Google Flow headless, generate Nano Banana 2.1 image and save
+ */
+router.post('/jobs/:id/auto-flow', async (req, res) => {
+  try {
+    const job = await StoryJob.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const remasteredDir = path.resolve('uploads', 'remastered');
+    if (!fs.existsSync(remasteredDir)) fs.mkdirSync(remasteredDir, { recursive: true });
+    const destPath = path.join(remasteredDir, `remastered_${job.fbid}.jpg`);
+
+    const promptCore = job.originalStoryEn ? job.originalStoryEn.slice(0, 300) : 'emotional dramatic confrontational scene';
+    const flowPrompt = `Cinematic 8k photorealistic drama, ${promptCore}. High detail, altered character faces, altered stylish outfits, preserve deep emotional expressions, crying, regret, sorrow, dramatic lighting, identical camera angle, ultra realistic cinematic quality, no text, no watermark, no logos.`;
+
+    await googleFlowService.generateImageWithFlow(flowPrompt, destPath);
+
+    job.remasteredImagePath = destPath;
+    job.currentStep = 'Đã tự động tạo ảnh siêu nét từ Google Flow PRO (Nano Banana 2.1)';
+    await job.save();
+
+    res.json({
+      success: true,
+      message: 'Đã tự động tạo và cập nhật ảnh thành công từ Google Flow PRO!',
+      job
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * DELETE /api/jobs/:id
  */
 router.delete('/jobs/:id', async (req, res) => {
