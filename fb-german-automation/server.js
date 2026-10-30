@@ -66,14 +66,41 @@ if (fs.existsSync(frontendDir)) {
   }
 }
 
-// Connect to MongoDB and start server
-async function bootstrap() {
+let inMemoryServer = null;
+
+// Connect to MongoDB with automatic fallback to Embedded In-Memory Database
+async function connectDatabase() {
   try {
     console.log(`[Database] Connecting to MongoDB at ${MONGODB_URI}...`);
     await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000
+      serverSelectionTimeoutMS: 3000
     });
     console.log('[Database] MongoDB connection established successfully.');
+  } catch (err) {
+    console.warn(`[Database] Local/Configured MongoDB is offline (${err.message}).`);
+    console.log('[Database] ⚡ Activating Embedded In-Memory MongoDB Server (zero setup)...');
+    try {
+      const { MongoMemoryServer } = await import('mongodb-memory-server');
+      inMemoryServer = await MongoMemoryServer.create({
+        instance: {
+          dbName: 'fb_german_automation'
+        }
+      });
+      const memoryUri = inMemoryServer.getUri();
+      console.log(`[Database] 🚀 Embedded MongoDB ready at: ${memoryUri}`);
+      await mongoose.connect(memoryUri);
+      console.log('[Database] Connected to Embedded In-Memory Database successfully!');
+    } catch (memErr) {
+      console.error(`[Database Fatal Error] Failed to start embedded database: ${memErr.message}`);
+      throw memErr;
+    }
+  }
+}
+
+// Bootstrap application
+async function bootstrap() {
+  try {
+    await connectDatabase();
 
     // Seed 10 German Fanpages if not yet seeded
     await Fanpage.seedDefaultPages();
@@ -91,11 +118,6 @@ async function bootstrap() {
     });
   } catch (err) {
     console.error(`[Server Error] Failed to start application: ${err.message}`);
-    // If MongoDB is offline, provide clear instruction
-    if (err.message.includes('ECONNREFUSED') || err.message.includes('serverSelectionTimeoutMS')) {
-      console.warn('\n[Notice] MongoDB does not seem to be running on localhost:27017.');
-      console.warn('Please ensure MongoDB service or mongod is running, or set MONGODB_URI in .env to a MongoDB Atlas cluster URI.\n');
-    }
   }
 }
 
@@ -104,12 +126,18 @@ process.on('SIGINT', async () => {
   console.log('\n[Server] Shutting down gracefully...');
   jobWorker.stopWorker();
   await mongoose.disconnect();
+  if (inMemoryServer) {
+    await inMemoryServer.stop();
+  }
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   jobWorker.stopWorker();
   await mongoose.disconnect();
+  if (inMemoryServer) {
+    await inMemoryServer.stop();
+  }
   process.exit(0);
 });
 
