@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { GoogleGenAI } from '@google/genai';
 
 /**
@@ -5,13 +6,12 @@ import { GoogleGenAI } from '@google/genai';
  * Leverages Google Gemini to turn English stories into compelling German narratives
  */
 export class GermanTranslator {
-  constructor() {
-    this.apiKey = process.env.GEMINI_API_KEY || '';
-    this.modelName = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
+  getApiKey() {
+    return (process.env.GEMINI_API_KEY || '').trim();
+  }
 
-    if (this.apiKey) {
-      this.ai = new GoogleGenAI({ apiKey: this.apiKey });
-    }
+  getModelName() {
+    return (process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash').trim();
   }
 
   /**
@@ -24,11 +24,12 @@ export class GermanTranslator {
       return this._generateDefaultGermanTemplate('Eine berührende Lebensgeschichte...');
     }
 
+    const apiKey = this.getApiKey();
     console.log(`[GermanTranslator] Translating English story (${originalStoryEn.length} chars) to German...`);
 
-    if (this.apiKey && this.ai) {
+    if (apiKey) {
       try {
-        const result = await this._callGeminiTranslation(originalStoryEn);
+        const result = await this._callGeminiTranslation(originalStoryEn, apiKey);
         if (result && result.germanStory) {
           return result;
         }
@@ -42,9 +43,17 @@ export class GermanTranslator {
   }
 
   /**
-   * Call Gemini 2.5 Flash for high-converting German storytelling
+   * Call Gemini for high-converting German storytelling with automatic model fallback
    */
-  async _callGeminiTranslation(textEn) {
+  async _callGeminiTranslation(textEn, apiKey) {
+    const ai = new GoogleGenAI({ apiKey });
+    const candidateModels = [
+      this.getModelName(),
+      'gemini-1.5-flash',
+      'gemini-2.0-flash',
+      'gemini-flash-latest'
+    ];
+
     const prompt = `You are an award-winning German author and Facebook viral storytelling copywriter.
 Translate, adapt, and dramatically rewrite the following English story into an emotional, captivating German story tailored for a German Facebook audience.
 
@@ -71,32 +80,41 @@ Return STRICT JSON format only without code fences:
   "fullCaption": "The complete combined Facebook caption ready to paste"
 }`;
 
-    const response = await this.ai.models.generateContent({
-      model: this.modelName,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }]
-    });
+    let lastError = null;
+    for (const m of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: m,
+          contents: [{ role: 'user', parts: [{ text: prompt }] }]
+        });
 
-    const responseText = response?.text || response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const cleaned = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const responseText = response?.text || response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const cleaned = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
-    try {
-      const parsed = JSON.parse(cleaned);
-      const fullCaption = parsed.fullCaption || 
-        `${parsed.germanTitle}\n\n${parsed.germanStory}\n\n${parsed.callToAction}\n\n${parsed.hashtags}`;
+        try {
+          const parsed = JSON.parse(cleaned);
+          const fullCaption = parsed.fullCaption || 
+            `${parsed.germanTitle}\n\n${parsed.germanStory}\n\n${parsed.callToAction}\n\n${parsed.hashtags}`;
 
-      return {
-        germanTitle: parsed.germanTitle || 'Eine unvergessliche Lektion des Lebens',
-        germanStory: parsed.germanStory || textEn,
-        fullCaption: fullCaption.trim()
-      };
-    } catch (parseErr) {
-      console.warn(`[GermanTranslator] JSON parse warning, extracting raw text.`);
-      return {
-        germanTitle: 'Eine Geschichte über Herz und Verstand',
-        germanStory: cleaned,
-        fullCaption: cleaned
-      };
+          return {
+            germanTitle: parsed.germanTitle || 'Eine unvergessliche Lektion des Lebens',
+            germanStory: parsed.germanStory || textEn,
+            fullCaption: fullCaption.trim()
+          };
+        } catch (parseErr) {
+          return {
+            germanTitle: 'Eine Geschichte über Herz und Verstand',
+            germanStory: cleaned,
+            fullCaption: cleaned
+          };
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`[GermanTranslator] Model ${m} unavailable (${err.message}). Trying next fallback model...`);
+      }
     }
+
+    throw lastError;
   }
 
   /**
