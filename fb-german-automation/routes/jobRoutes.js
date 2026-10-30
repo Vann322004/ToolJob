@@ -6,6 +6,7 @@ import { Fanpage } from '../models/Fanpage.js';
 import { photoScraper } from '../services/photoScraper.js';
 import { jobWorker } from '../workers/jobWorker.js';
 import { googleFlowService } from '../services/googleFlowService.js';
+import { nanoBananaService } from '../services/nanoBananaService.js';
 
 const router = express.Router();
 const UPLOADS_DIR = path.resolve('uploads');
@@ -218,8 +219,9 @@ router.post('/jobs/:id/auto-flow', async (req, res) => {
     if (!fs.existsSync(remasteredDir)) fs.mkdirSync(remasteredDir, { recursive: true });
     const destPath = path.join(remasteredDir, `remastered_${job.fbid}.jpg`);
 
-    const promptCore = job.originalStoryEn ? job.originalStoryEn.slice(0, 300) : 'emotional dramatic confrontational scene';
-    const flowPrompt = `Cinematic 8k photorealistic drama, ${promptCore}. High detail, altered character faces, altered stylish outfits, preserve deep emotional expressions, crying, regret, sorrow, dramatic lighting, identical camera angle, ultra realistic cinematic quality, no text, no watermark, no logos.`;
+    console.log(`[JobRoutes] Generating vision prompt for job ${job.fbid}...`);
+    const flowPrompt = await nanoBananaService._generateVisionPrompt(job.rawImagePath, job.originalStoryEn);
+    console.log(`[JobRoutes] Flow Prompt generated: ${flowPrompt.slice(0, 100)}...`);
 
     await googleFlowService.generateImageWithFlow(flowPrompt, destPath);
 

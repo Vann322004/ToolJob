@@ -53,10 +53,9 @@ export class NanoBananaService {
     // 1. Fully Automated Google Flow PRO (Nano Banana 2.1) Generation
     if (googleFlowService.isConfigured()) {
       try {
-        const promptCore = originalStoryEn ? originalStoryEn.slice(0, 300) : 'emotional dramatic confrontational scene';
-        const flowPrompt = `Cinematic 8k photorealistic drama, ${promptCore}. High detail, altered character faces, altered stylish outfits, preserve deep emotional expressions, crying, regret, sorrow, dramatic lighting, identical camera angle, ultra realistic cinematic quality, no text, no watermark, no logos.`;
-        
-        console.log(`[NanoBananaService] 🍌 Running automated Google Flow PRO (Nano Banana 2.1) generation for FBID: ${fbid}...`);
+        console.log(`[NanoBananaService] 👁️ Analyzing raw image with Gemini Vision to craft identical matching prompt...`);
+        const flowPrompt = await this._generateVisionPrompt(rawImagePath, originalStoryEn);
+        console.log(`[NanoBananaService] 🍌 Running automated Google Flow PRO (Nano Banana 2.1) for FBID: ${fbid}...`);
         const flowResult = await googleFlowService.generateImageWithFlow(flowPrompt, outputPath);
         if (flowResult && fs.existsSync(flowResult)) {
           return flowResult;
@@ -244,6 +243,58 @@ Context of the scene: "${context ? context.slice(0, 300) : 'Emotional human life
 
     // If API responded without raw binary pixels, return null so Sharp remaster pipeline takes over
     return null;
+  }
+
+  /**
+   * Use Gemini 2.5 Flash Vision to look at the raw image and generate
+   * an exact matching scene prompt (identical camera, emotions, props, room; new faces/outfits; no logos)
+   */
+  async _generateVisionPrompt(rawImagePath, originalStoryEn) {
+    const apiKey = this.getApiKey();
+    if (!apiKey || !fs.existsSync(rawImagePath)) {
+      return `Cinematic 8k photorealistic drama, ${originalStoryEn || 'emotional confrontational scene'}. High detail, altered character faces, altered stylish outfits, preserve deep emotional expressions, crying, sorrow, dramatic lighting, identical camera angle, ultra realistic cinematic quality, no text, no watermark, no logos.`;
+    }
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const imgBuffer = fs.readFileSync(rawImagePath);
+      const base64Img = imgBuffer.toString('base64');
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `Analyze this image in meticulous detail. Generate a single English prompt for an image generator (Nano Banana AI) to recreate this EXACT dramatic scene:
+- Composition & Camera Angle: IDENTICAL perspective, position of subjects, and distance.
+- Setting & Props: Recreate every environment detail, room, furniture, and props accurately.
+- Characters: Keep the EXACT same number of characters and their genders.
+- Emotions & Actions: Preserve identical facial expressions (crying, shouting, smirking, grief, anger) and exact physical poses/actions.
+- CHANGE: Alter facial features and hairstyles, and give them new distinct stylish outfits.
+- MUST INCLUDE: Ultra realistic 8k cinematic photorealism, high detail, no text, no watermarks, no logos, no captions.
+Output ONLY the raw English prompt paragraph.`
+              },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: base64Img
+                }
+              }
+            ]
+          }
+        ]
+      });
+
+      const generated = response?.text?.trim() || '';
+      if (generated && generated.length > 50) {
+        return generated.replace(/```[a-z]*\n?/gi, '').replace(/\*\*.*?\*\*/g, '').slice(0, 800).trim();
+      }
+    } catch (err) {
+      console.warn(`[NanoBananaService] Gemini Vision prompt notice: ${err.message}`);
+    }
+
+    return `Cinematic 8k photorealistic drama, ${originalStoryEn || 'emotional dramatic confrontational scene'}. High detail, altered character faces, altered stylish outfits, preserve deep emotional expressions, crying, regret, sorrow, dramatic lighting, identical camera angle, ultra realistic cinematic quality, no text, no watermark, no logos.`;
   }
 }
 
