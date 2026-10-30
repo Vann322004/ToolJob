@@ -1,0 +1,8 @@
+node_modules/
+.env
+uploads/raw/*
+!uploads/raw/.gitkeep
+uploads/remastered/*
+!uploads/remastered/.gitkeep
+.DS_Store
+*.log

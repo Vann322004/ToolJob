@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FB German Automation - Hệ Thống Tự Động Lên Lịch Meta 70 Bài/Ngày</title>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          },
+          colors: {
+            primary: {
+              50: '#f0f9ff',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- React 18 & ReactDOM & Babel Standalone -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #f1f5f9;
+      font-family: 'Inter', sans-serif;
+    }
+    .glass-card {
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="min-h-screen custom-scrollbar">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      const [stats, setStats] = useState(null);
+      const [jobs, setJobs] = useState([]);
+      const [fanpages, setFanpages] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [sourceUrl, setSourceUrl] = useState('');
+      const [targetCount, setTargetCount] = useState(70);
+      const [activeTab, setActiveTab] = useState('jobs'); // 'jobs' | 'fanpages' | 'logs'
+      const [filterStatus, setFilterStatus] = useState('ALL');
+      const [searchTerm, setSearchTerm] = useState('');
+      const [selectedJob, setSelectedJob] = useState(null);
+      const [actionMsg, setActionMsg] = useState('');
+      const [logs, setLogs] = useState([]);
+
+      const addLog = (msg) => {
+        setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 99)]);
+      };
+
+      // Fetch Real-time Stats & Jobs
+      const fetchData = async () => {
+        try {
+          const [resStats, resJobs, resPages] = await Promise.all([
+            fetch('/api/stats').then(r => r.json()),
+            fetch(`/api/jobs?status=${filterStatus}&search=${encodeURIComponent(searchTerm)}`).then(r => r.json()),
+            fetch('/api/fanpages').then(r => r.json())
+          ]);
+
+          if (resStats.success) setStats(resStats);
+          if (resJobs.success) setJobs(resJobs.jobs);
+          if (resPages.success) setFanpages(resPages.fanpages);
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      };
+
+      // Polling every 3 seconds for real-time live updates
+      useEffect(() => {
+        fetchData();
+        const timer = setInterval(fetchData, 3000);
+        return () => clearInterval(timer);
+      }, [filterStatus, searchTerm]);
+
+      // Trigger Scraper
+      const handleStartScrape = async (e) => {
+        e.preventDefault();
+        if (!sourceUrl.trim()) {
+          alert('Vui lòng nhập đường dẫn URL Fanpage nguồn Facebook');
+          return;
+        }
+
+        setLoading(true);
+        setActionMsg('Đang kích hoạt scraper Playwright...');
+        addLog(`Bắt đầu cào ảnh từ nguồn: ${sourceUrl} (Mục tiêu: ${targetCount} bài)`);
+
+        try {
+          const res = await fetch('/api/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceUrl, maxPhotos: targetCount })
+          }).then(r => r.json());
+
+          if (res.success) {
+            setActionMsg(res.message);
+            addLog(`Scraper đã kích hoạt thành công.`);
+            fetchData();
+          } else {
+            alert(`Lỗi: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Lỗi kết nối: ${err.message}`);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Generate Test Sample Jobs
+      const handleGenerateSample = async () => {
+        try {
+          addLog('Đang khởi tạo 3 bài mẫu truyện tranh để test quy trình AI...');
+          const res = await fetch('/api/simulate-sample', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count: 3 })
+          }).then(r => r.json());
+
+          if (res.success) {
+            addLog(`Đã tạo thành công ${res.jobs.length} bài mẫu. Worker sẽ xử lý tự động trong vài giây.`);
+            fetchData();
+          }
+        } catch (err) {
+          alert(`Lỗi tạo mẫu: ${err.message}`);
+        }
+      };
+
+      // Toggle Worker
+      const handleToggleWorker = async () => {
+        try {
+          const res = await fetch('/api/worker/toggle', { method: 'POST' }).then(r => r.json());
+          if (res.success) {
+            addLog(res.message);
+            fetchData();
+          }
+        } catch (err) {
+          alert(`Lỗi: ${err.message}`);
+        }
+      };
+
+      // Retry Single Job
+      const handleRetry = async (jobId) => {
+        try {
+          addLog(`Yêu cầu thử lại Job ID: ${jobId}`);
+          const res = await fetch(`/api/jobs/${jobId}/retry`, { method: 'POST' }).then(r => r.json());
+          if (res.success) {
+            addLog(`Job ${jobId} đã được đưa lại vào hàng chờ PENDING`);
+            fetchData();
+          }
+        } catch (err) {
+          alert(`Lỗi retry: ${err.message}`);
+        }
+      };
+
+      const getStatusBadge = (status) => {
+        switch (status) {
+          case 'PENDING':
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">Chờ xử lý</span>;
+          case 'REMASTERING':
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 animate-pulse">Sửa ảnh AI</span>;
+          case 'TRANSLATING':
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 animate-pulse">Dịch tiếng Đức</span>;
+          case 'SCHEDULING':
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 animate-pulse">Lên lịch Meta</span>;
+          case 'SCHEDULED':
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Đã lên lịch Meta</span>;
+          case 'FAILED':
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">Thất bại</span>;
+          default:
+            return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-700 text-slate-300">{status}</span>;
+        }
+      };
+
+      return (
+        <div className="min-h-screen pb-16">
+          {/* Top Navigation Bar */}
+          <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                  <span className="text-xl font-black text-white">DE</span>
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    FB German Automation
+                    <span className="text-xs font-medium px-2 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800">
+                      70 Bài/Ngày
+                    </span>
+                  </h1>
+                  <p className="text-xs text-slate-400">Playwright • Gemini 2.5 • Nano Banana • Meta Business Suite</p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                {/* Worker Status Indicator */}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs">
+                  <div className={`w-2.5 h-2.5 rounded-full ${stats?.worker?.isActive ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
+                  <span className="text-slate-300">
+                    Worker: <strong className={stats?.worker?.isActive ? 'text-emerald-400' : 'text-rose-400'}>
+                      {stats?.worker?.isActive ? (stats?.worker?.isProcessing ? 'Đang bận' : 'Sẵn sàng') : 'Đang tạm dừng'}
+                    </strong>
+                  </span>
+                </div>
+
+                <button
+                  onClick={handleToggleWorker}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition"
+                >
+                  {stats?.worker?.isActive ? '⏸ Tạm dừng' : '▶ Khởi chạy'}
+                </button>
+
+                <button
+                  onClick={handleGenerateSample}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 transition"
+                >
+                  ✨ Tạo 3 Job Test Mẫu
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
+            {/* Input Form & Action Hero */}
+            <div className="glass-card rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+              <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="mb-4">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <span>📥 Thu hoạch ảnh và tự động hóa toàn diện 10 Fanpage</span>
+                </h2>
+                <p className="text-sm text-slate-400">
+                  Dán đường dẫn tab Photos của Fanpage nguồn. Hệ thống sẽ cào ảnh chống trùng 100%, sửa ảnh bằng AI, dịch sang tiếng Đức và lên lịch hẹn chuẩn 7 khung giờ/ngày cho 10 Page.
+                </p>
+              </div>
+
+              <form onSubmit={handleStartScrape} className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-8">
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Đường dẫn Tab Photos Facebook Nguồn:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="url"
+                      required
+                      placeholder="https://www.facebook.com/SomeFanpage/photos"
+                      value={sourceUrl}
+                      onChange={(e) => setSourceUrl(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-900/90 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Số lượng bài:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="200"
+                    value={targetCount}
+                    onChange={(e) => setTargetCount(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-900/90 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm text-center"
+                  />
+                </div>
+
+                <div className="lg:col-span-2 flex items-end">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 hover:from-sky-400 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-sky-500/25 transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {loading ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span>Đang cào...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🚀 Bắt đầu thu hoạch</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+
+              {actionMsg && (
+                <div className="mt-3 text-xs text-sky-400 flex items-center gap-2">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                  {actionMsg}
+                </div>
+              )}
+            </div>
+
+            {/* KPI Cards Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="glass-card p-4 rounded-xl border border-slate-800">
+                <span className="text-xs text-slate-400 block mb-1">Mục tiêu hôm nay</span>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-2xl font-bold text-white">
+                    {stats?.stats?.scheduledToday || 0}
+                    <span className="text-sm font-normal text-slate-500"> / {stats?.stats?.targetDailyTotal || 70}</span>
+                  </span>
+                  <span className="text-xs font-semibold text-sky-400">{stats?.stats?.progressPercent || 0}%</span>
+                </div>
+                <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-sky-500 to-emerald-400 h-1.5 rounded-full transition-all duration-500"
+                    style={{ width: `${stats?.stats?.progressPercent || 0}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="glass-card p-4 rounded-xl border border-slate-800">
+                <span className="text-xs text-slate-400 block mb-1">Tổng Job Thu Hoạch</span>
+                <span className="text-2xl font-bold text-white">{stats?.stats?.totalJobs || 0}</span>
+                <span className="text-xs text-slate-500 block mt-1">Ảnh đã cào</span>
+              </div>
+
+              <div className="glass-card p-4 rounded-xl border border-slate-800">
+                <span className="text-xs text-slate-400 block mb-1">Hàng chờ (Pending)</span>
+                <span className="text-2xl font-bold text-amber-400">{stats?.stats?.pending || 0}</span>
+                <span className="text-xs text-slate-500 block mt-1">Chờ worker</span>
+              </div>
+
+              <div className="glass-card p-4 rounded-xl border border-slate-800">
+                <span className="text-xs text-slate-400 block mb-1">Đang xử lý</span>
+                <span className="text-2xl font-bold text-sky-400">{stats?.stats?.inProgress || 0}</span>
+                <span className="text-xs text-slate-500 block mt-1">AI Remaster & Dịch</span>
+              </div>
+
+              <div className="glass-card p-4 rounded-xl border border-slate-800">
+                <span className="text-xs text-slate-400 block mb-1">Đã lên lịch Meta</span>
+                <span className="text-2xl font-bold text-emerald-400">{stats?.stats?.scheduled || 0}</span>
+                <span className="text-xs text-slate-500 block mt-1">Chuẩn 1-1 các Page</span>
+              </div>
+
+              <div className="glass-card p-4 rounded-xl border border-slate-800">
+                <span className="text-xs text-slate-400 block mb-1">Thất bại / Lỗi</span>
+                <span className="text-2xl font-bold text-rose-400">{stats?.stats?.failed || 0}</span>
+                <span className="text-xs text-slate-500 block mt-1">Cần retry</span>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-slate-800 space-x-6 text-sm">
+              <button
+                onClick={() => setActiveTab('jobs')}
+                className={`pb-3 font-semibold transition border-b-2 ${
+                  activeTab === 'jobs'
+                    ? 'border-sky-500 text-sky-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                📋 Bảng Tiến Độ Thời Gian Thực ({jobs.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('fanpages')}
+                className={`pb-3 font-semibold transition border-b-2 ${
+                  activeTab === 'fanpages'
+                    ? 'border-sky-500 text-sky-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                🇩🇪 10 Fanpage Đức & Khung Giờ ({fanpages.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`pb-3 font-semibold transition border-b-2 ${
+                  activeTab === 'logs'
+                    ? 'border-sky-500 text-sky-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                📟 Nhật Ký Hệ Thống (Logs)
+              </button>
+            </div>
+
+            {/* TAB 1: Real-time Jobs Table */}
+            {activeTab === 'jobs' && (
+              <div className="glass-card rounded-2xl p-6 space-y-4">
+                {/* Search & Filter Bar */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {['ALL', 'PENDING', 'REMASTERING', 'TRANSLATING', 'SCHEDULING', 'SCHEDULED', 'FAILED'].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => setFilterStatus(st)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                          filterStatus === st
+                            ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                        }`}
+                      >
+                        {st === 'ALL' ? 'Tất cả' : st}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="w-full sm:w-64">
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm FBID, tiêu đề..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900/90 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">FBID & Thời gian</th>
+                        <th className="py-3 px-4">Ảnh Raw / AI Remaster</th>
+                        <th className="py-3 px-4">Cốt truyện Tiếng Anh</th>
+                        <th className="py-3 px-4">Bản dịch Tiếng Đức</th>
+                        <th className="py-3 px-4">Fanpage Đích & Lịch Meta</th>
+                        <th className="py-3 px-4">Trạng thái & Tiến trình</th>
+                        <th className="py-3 px-4 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-slate-300">
+                      {jobs.length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="text-center py-12 text-slate-500">
+                            Chưa có Job nào. Hãy dán URL và bấm "Bắt đầu thu hoạch" hoặc bấm "Tạo 3 Job Test Mẫu" ở trên!
+                          </td>
+                        </tr>
+                      ) : (
+                        jobs.map((job) => (
+                          <tr key={job._id} className="hover:bg-slate-800/40 transition">
+                            {/* FBID & Time */}
+                            <td className="py-3 px-4">
+                              <span className="font-mono font-semibold text-sky-400 block">{job.fbid}</span>
+                              <span className="text-[10px] text-slate-500">
+                                {new Date(job.createdAt).toLocaleTimeString()}
+                              </span>
+                            </td>
+
+                            {/* Images Comparison */}
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="text-center">
+                                  <div className="w-12 h-12 rounded-lg bg-slate-800 overflow-hidden border border-slate-700 flex items-center justify-center">
+                                    <img
+                                      src={job.rawImagePath ? `/uploads/raw/raw_${job.fbid}.jpg` : job.rawImageUrl}
+                                      alt="Raw"
+                                      className="w-full h-full object-cover cursor-pointer hover:scale-110 transition"
+                                      onClick={() => setSelectedJob(job)}
+                                      onError={(e) => { e.target.src = 'https://placehold.co/100x100/1e293b/94a3b8?text=Raw'; }}
+                                    />
+                                  </div>
+                                  <span className="text-[9px] text-slate-500 block">Gốc</span>
+                                </div>
+
+                                <span className="text-slate-600 font-bold">→</span>
+
+                                <div className="text-center">
+                                  <div className="w-12 h-12 rounded-lg bg-slate-800 overflow-hidden border border-slate-700 flex items-center justify-center">
+                                    {job.remasteredImagePath ? (
+                                      <img
+                                        src={`/uploads/remastered/remastered_${job.fbid}.jpg`}
+                                        alt="Remastered"
+                                        className="w-full h-full object-cover cursor-pointer hover:scale-110 transition"
+                                        onClick={() => setSelectedJob(job)}
+                                        onError={(e) => { e.target.src = 'https://placehold.co/100x100/1e293b/38bdf8?text=AI'; }}
+                                      />
+                                    ) : (
+                                      <span className="text-[10px] text-slate-600">Chưa có</span>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px] text-sky-400 font-medium block">Sửa AI</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Story EN */}
+                            <td className="py-3 px-4 max-w-xs">
+                              <p className="line-clamp-2 text-slate-300 text-xs">
+                                {job.originalStoryEn || 'Không có mô tả'}
+                              </p>
+                              {job.sourcePostUrl && (
+                                <a
+                                  href={job.sourcePostUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] text-sky-400 hover:underline block mt-0.5"
+                                >
+                                  🔗 Xem bài gốc
+                                </a>
+                              )}
+                            </td>
+
+                            {/* Story DE */}
+                            <td className="py-3 px-4 max-w-xs">
+                              {job.germanTitle ? (
+                                <div>
+                                  <span className="font-semibold text-slate-200 block truncate">{job.germanTitle}</span>
+                                  <p className="line-clamp-2 text-slate-400 text-[11px] mt-0.5">{job.germanStory}</p>
+                                </div>
+                              ) : (
+                                <span className="text-slate-600 italic">Đang chờ dịch thuật...</span>
+                              )}
+                            </td>
+
+                            {/* Fanpage & Schedule */}
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              {job.targetFanpageName ? (
+                                <div>
+                                  <span className="font-medium text-slate-200 block">{job.targetFanpageName}</span>
+                                  {job.scheduledPublishTime && (
+                                    <span className="text-[11px] text-emerald-400 font-mono block">
+                                      ⏰ {new Date(job.scheduledPublishTime).toLocaleString('de-DE')}
+                                    </span>
+                                  )}
+                                  {job.metaPostId && (
+                                    <span className="text-[9px] text-slate-500 font-mono block">ID: {job.metaPostId}</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-600 italic">Chưa chỉ định</span>
+                              )}
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <div className="space-y-1">
+                                {getStatusBadge(job.status)}
+                                <span className="text-[10px] text-slate-400 block max-w-[140px] truncate" title={job.currentStep}>
+                                  {job.currentStep}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="py-3 px-4 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => setSelectedJob(job)}
+                                  className="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                                >
+                                  Chi tiết
+                                </button>
+                                {job.status === 'FAILED' && (
+                                  <button
+                                    onClick={() => handleRetry(job._id)}
+                                    className="px-2.5 py-1 text-xs rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 transition"
+                                  >
+                                    Thử lại
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: Fanpages Management */}
+            {activeTab === 'fanpages' && (
+              <div className="glass-card rounded-2xl p-6 space-y-6">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Quản lý 10 Fanpage Tiếng Đức & Lịch Đăng 7 Khung Giờ/Ngày</h3>
+                  <p className="text-xs text-slate-400">
+                    Mỗi Fanpage được cấu hình 7 khung giờ vàng tại Đức (Europe/Berlin): 08:00, 10:30, 13:00, 15:30, 18:00, 20:30, 22:00. Tổng cộng 70 bài/ngày.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {fanpages.map((page, idx) => (
+                    <div key={page._id} className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className="text-xs font-mono text-sky-400 font-bold block">{page.pageId}</span>
+                          <h4 className="font-semibold text-white text-sm">{page.name}</h4>
+                        </div>
+                        <span className="px-2 py-0.5 text-[10px] rounded font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          {page.scheduledCount || 0} / {page.dailyTarget || 7} bài
+                        </span>
+                      </div>
+
+                      {/* 7 Schedule Slots Badge */}
+                      <div>
+                        <span className="text-[10px] text-slate-400 block mb-1.5 font-medium">7 Khung giờ đăng bài/ngày:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(page.scheduleSlots || []).map((slot, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-mono"
+                            >
+                              {slot}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400 flex justify-between">
+                        <span>Múi giờ: {page.timezone || 'Europe/Berlin'}</span>
+                        <span className="text-emerald-400">✓ Đang hoạt động</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: System Logs */}
+            {activeTab === 'logs' && (
+              <div className="glass-card rounded-2xl p-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white">Nhật ký hoạt động hệ thống thời gian thực (Terminal)</h3>
+                  <button
+                    onClick={() => setLogs([])}
+                    className="text-xs text-slate-400 hover:text-slate-200"
+                  >
+                    Xóa nhật ký
+                  </button>
+                </div>
+                <div className="h-96 bg-black/60 rounded-xl p-4 font-mono text-xs text-emerald-400 overflow-y-auto custom-scrollbar space-y-1">
+                  {logs.length === 0 ? (
+                    <div className="text-slate-500 italic">Đang ghi nhận sự kiện hệ thống...</div>
+                  ) : (
+                    logs.map((lg, i) => <div key={i}>{lg}</div>)
+                  )}
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* Job Details Modal */}
+          {selectedJob && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="glass-card bg-slate-900 border border-slate-700 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                  <div>
+                    <span className="text-xs font-mono text-sky-400">Chi tiết bài viết FBID: {selectedJob.fbid}</span>
+                    <h3 className="text-lg font-bold text-white">{selectedJob.germanTitle || 'Bản xem trước Job'}</h3>
+                  </div>
+                  <button
+                    onClick={() => setSelectedJob(null)}
+                    className="text-slate-400 hover:text-white text-xl font-bold p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Images Preview Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-xs text-slate-400 font-semibold block mb-1">Ảnh Gốc (Raw Downloaded):</span>
+                    <div className="rounded-xl overflow-hidden border border-slate-700 bg-slate-800 aspect-square flex items-center justify-center">
+                      <img
+                        src={selectedJob.rawImagePath ? `/uploads/raw/raw_${selectedJob.fbid}.jpg` : selectedJob.rawImageUrl}
+                        alt="Raw"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-xs text-sky-400 font-semibold block mb-1">Ảnh Đã Sửa Bằng AI (Nano Banana / Gemini):</span>
+                    <div className="rounded-xl overflow-hidden border border-slate-700 bg-slate-800 aspect-square flex items-center justify-center">
+                      {selectedJob.remasteredImagePath ? (
+                        <img
+                          src={`/uploads/remastered/remastered_${selectedJob.fbid}.jpg`}
+                          alt="Remastered"
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">Chưa sửa ảnh</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Full German Caption */}
+                <div>
+                  <span className="text-xs text-slate-400 font-semibold block mb-1">
+                    Toàn bộ nội dung đăng lên Meta (Tiếng Đức):
+                  </span>
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-300 font-sans whitespace-pre-line leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">
+                    {selectedJob.germanCaption || selectedJob.germanStory || 'Chưa có bản dịch.'}
+                  </div>
+                </div>
+
+                {/* Error Log if any */}
+                {selectedJob.errorLog && (
+                  <div>
+                    <span className="text-xs text-rose-400 font-semibold block mb-1">Nhật ký lỗi (Error Log):</span>
+                    <pre className="bg-rose-950/30 border border-rose-900/50 p-3 rounded-lg text-rose-300 text-[11px] font-mono overflow-x-auto">
+                      {selectedJob.errorLog}
+                    </pre>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => setSelectedJob(null)}
+                    className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
