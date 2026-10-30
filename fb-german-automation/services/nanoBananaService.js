@@ -35,6 +35,10 @@ export class NanoBananaService {
     return (process.env.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002').trim();
   }
 
+  isAiRemasterEnabled() {
+    return process.env.ENABLE_AI_REMASTER === 'true';
+  }
+
   /**
    * Remaster an image for a specific StoryJob
    * @param {Object} job - StoryJob instance or object
@@ -46,6 +50,13 @@ export class NanoBananaService {
 
     if (!fs.existsSync(rawImagePath)) {
       throw new Error(`Raw image not found on disk at: ${rawImagePath}`);
+    }
+
+    // If AI image modifying is temporarily turned off, use the original raw image directly
+    if (!this.isAiRemasterEnabled()) {
+      console.log(`[NanoBananaService] ⚡ AI Remaster is OFF. Directly using raw image for FBID: ${fbid}.`);
+      fs.copyFileSync(rawImagePath, outputPath);
+      return outputPath;
     }
 
     console.log(`[NanoBananaService] Starting image remastering for FBID: ${fbid}...`);
