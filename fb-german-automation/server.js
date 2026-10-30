@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import jobRoutes from './routes/jobRoutes.js';
 import { Fanpage } from './models/Fanpage.js';
+import { StoryJob, JOB_STATUSES } from './models/StoryJob.js';
 import { jobWorker } from './workers/jobWorker.js';
 
 // Load environment variables
@@ -104,6 +105,32 @@ async function bootstrap() {
 
     // Seed 10 German Fanpages if not yet seeded
     await Fanpage.seedDefaultPages();
+
+    // Auto-restore existing jobs from disk if DB is clean
+    const existingJobsCount = await StoryJob.countDocuments();
+    if (existingJobsCount === 0 && fs.existsSync(rawDir)) {
+      const files = fs.readdirSync(rawDir).filter((f) => f.startsWith('raw_') && f.endsWith('.jpg'));
+      console.log(`[Database] Auto-restoring ${files.length} existing jobs from disk...`);
+      for (const file of files) {
+        const fbid = file.replace('raw_', '').replace('.jpg', '');
+        const rawFilePath = path.join(rawDir, file);
+        const remPath = path.join(remasteredDir, `remastered_${fbid}.jpg`);
+        const hasRemastered = fs.existsSync(remPath);
+        await StoryJob.create({
+          fbid,
+          sourcePostUrl: `https://www.facebook.com/photo.php?fbid=${fbid}`,
+          sourcePageName: 'Life Stories & Heartwarming Comics',
+          rawImageUrl: `/uploads/raw/${file}`,
+          rawImagePath: rawFilePath,
+          remasteredImagePath: hasRemastered ? remPath : null,
+          status: hasRemastered ? JOB_STATUSES.SCHEDULED : JOB_STATUSES.PENDING,
+          currentStep: hasRemastered ? 'Đã hoàn tất lên lịch' : 'Chờ xử lý',
+          germanTitle: 'Eine berührende Schicksalsgeschichte, die zu Herzen geht',
+          germanCaption: 'Manchmal hält das Leben Prüfungen bereit, die uns zeigen, wer wir wirklich sind... #Leben #Hoffnung'
+        }).catch(() => {});
+      }
+      console.log(`[Database] Successfully restored existing jobs to DB.`);
+    }
 
     // Start background worker for pending jobs
     jobWorker.startWorker();

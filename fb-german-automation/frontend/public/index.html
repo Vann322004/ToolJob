@@ -80,6 +80,37 @@
       const [selectedJob, setSelectedJob] = useState(null);
       const [actionMsg, setActionMsg] = useState('');
       const [logs, setLogs] = useState([]);
+      const [flowUrlInput, setFlowUrlInput] = useState('');
+      const [importingFlow, setImportingFlow] = useState(false);
+
+      const handleImportFlow = async (jobId) => {
+        if (!flowUrlInput.trim()) {
+          alert('Vui lòng dán link ảnh Google Flow (ví dụ: https://flow.google.com/shared/image/...)');
+          return;
+        }
+        setImportingFlow(true);
+        addLog(`Đang trích xuất ảnh siêu nét từ Google Flow: ${flowUrlInput}...`);
+        try {
+          const res = await fetch(`/api/jobs/${jobId}/import-flow`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ flowUrl: flowUrlInput.trim() })
+          }).then(r => r.json());
+
+          if (res.success) {
+            addLog(`✓ Cập nhật ảnh Nano Banana 2.1 từ Google Flow thành công!`);
+            setSelectedJob({ ...res.job, updatedAt: new Date().toISOString() });
+            setFlowUrlInput('');
+            fetchData();
+          } else {
+            alert(`Lỗi: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Lỗi kết nối: ${err.message}`);
+        } finally {
+          setImportingFlow(false);
+        }
+      };
 
       const addLog = (msg) => {
         setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 99)]);
@@ -501,7 +532,7 @@
                                   <div className="w-12 h-12 rounded-lg bg-slate-800 overflow-hidden border border-slate-700 flex items-center justify-center">
                                     {job.remasteredImagePath ? (
                                       <img
-                                        src={`/uploads/remastered/remastered_${job.fbid}.jpg`}
+                                        src={`/uploads/remastered/remastered_${job.fbid}.jpg?v=${job.updatedAt || ''}`}
                                         alt="Remastered"
                                         className="w-full h-full object-cover cursor-pointer hover:scale-110 transition"
                                         onClick={() => setSelectedJob(job)}
@@ -708,7 +739,7 @@
                     <div className="rounded-xl overflow-hidden border border-slate-700 bg-slate-800 aspect-square flex items-center justify-center">
                       {selectedJob.remasteredImagePath ? (
                         <img
-                          src={`/uploads/remastered/remastered_${selectedJob.fbid}.jpg`}
+                          src={`/uploads/remastered/remastered_${selectedJob.fbid}.jpg?v=${selectedJob.updatedAt || ''}`}
                           alt="Remastered"
                           className="w-full h-full object-contain"
                         />
@@ -716,6 +747,32 @@
                         <span className="text-xs text-slate-500">Chưa sửa ảnh</span>
                       )}
                     </div>
+                  </div>
+                </div>
+
+                {/* Google Flow Quick Link Import */}
+                <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                      <span>⚡ Gắn link ảnh Google Flow (Nano Banana 2.1 PRO):</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">Tự động trích xuất ảnh gốc 1200x1200 không logo</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="Dán link chia sẻ: https://flow.google.com/shared/image/..."
+                      value={flowUrlInput}
+                      onChange={(e) => setFlowUrlInput(e.target.value)}
+                      className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                    <button
+                      onClick={() => handleImportFlow(selectedJob._id)}
+                      disabled={importingFlow}
+                      className="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium rounded-lg text-xs transition disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                    >
+                      {importingFlow ? 'Đang trích xuất...' : '✨ Cập nhật ảnh ngay'}
+                    </button>
                   </div>
                 </div>
 
