@@ -24,9 +24,30 @@ router.post('/scrape', async (req, res) => {
       return res.status(400).json({ error: 'sourceUrl is required' });
     }
 
-    // Launch scraper in background so HTTP response is returned immediately
+    const count = parseInt(maxPhotos, 10) || 5;
+
+    // For reasonable batches (<= 20 photos), await completion to give instant UI feedback
+    if (count <= 20) {
+      const report = await photoScraper.scrapeFanpagePhotos(sourceUrl, count);
+      const message = report.added > 0
+        ? `Đã thu hoạch thành công +${report.added} bài mới! (Đã bỏ qua ${report.skipped} bài trùng lặp)`
+        : `Không tìm thấy ảnh mới nào (Đã rà soát ${report.found} ảnh trên trang, tất cả đều đã lưu trong hệ thống).`;
+
+      return res.json({
+        success: true,
+        found: report.found,
+        added: report.added,
+        skipped: report.skipped,
+        jobs: report.jobs,
+        message,
+        sourceUrl,
+        targetPhotos: count
+      });
+    }
+
+    // For larger requests, launch in background
     photoScraper
-      .scrapeFanpagePhotos(sourceUrl, parseInt(maxPhotos, 10) || 70)
+      .scrapeFanpagePhotos(sourceUrl, count)
       .then((report) => {
         console.log(`[JobRoutes] Scrape completed: +${report.added} new jobs queued.`);
       })
@@ -36,9 +57,9 @@ router.post('/scrape', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Đã kích hoạt cào ảnh từ ${sourceUrl}. Tiến trình đang chạy ngầm...`,
+      message: `Đã kích hoạt cào ${count} ảnh từ ${sourceUrl}. Tiến trình đang xử lý ngầm...`,
       sourceUrl,
-      targetPhotos: maxPhotos
+      targetPhotos: count
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

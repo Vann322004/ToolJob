@@ -76,19 +76,20 @@ export class PhotoScraper {
       const pageTitle = await page.title().catch(() => 'Facebook Source Page');
 
       // Scroll and harvest photo links
-      const photoLinks = await this._collectPhotoLinks(page, maxItems);
-      results.found = photoLinks.length;
-      console.log(`[PhotoScraper] Discovered ${photoLinks.length} photo entries on source page.`);
+      const harvest = await this._collectPhotoLinks(page, maxItems);
+      const photoLinks = harvest.items;
+      results.found = harvest.totalDiscovered;
+      results.skipped = harvest.skippedCount;
+      console.log(`[PhotoScraper] Discovered ${harvest.totalDiscovered} total entries (${photoLinks.length} new candidates, ${harvest.skippedCount} already in DB).`);
 
       for (const item of photoLinks) {
         if (results.added >= maxItems) break;
 
         const { fbid, postUrl, previewImgUrl } = item;
 
-        // 100% Anti-duplicate check in MongoDB
+        // Double check in DB just in case
         const existing = await StoryJob.findOne({ fbid });
         if (existing) {
-          console.log(`[PhotoScraper] [SKIP] FBID already in DB: ${fbid}`);
           results.skipped++;
           continue;
         }
@@ -164,12 +165,18 @@ export class PhotoScraper {
   }
 
   /**
-   * Collect photo links and unique fbids from page DOM
+   * Collect photo links and unique fbids from page DOM (skipping already scraped ones)
    */
   async _collectPhotoLinks(page, maxItems) {
     const collected = new Map();
     let scrollAttempts = 0;
-    const maxScrolls = 15;
+    const maxScrolls = 25;
+    const seenFbids = new Set();
+    let skippedCount = 0;
+
+    // Fetch existing fbids from MongoDB so we keep scrolling until we find genuine new photos
+    const existingFbids = new Set(await StoryJob.distinct('fbid'));
+    console.log(`[PhotoScraper] Pre-checking database: ${existingFbids.size} photos already exist in DB.`);
 
     while (collected.size < maxItems && scrollAttempts < maxScrolls) {
       // Find all anchors referencing photos
@@ -186,23 +193,35 @@ export class PhotoScraper {
         const fbidMatch = item.href.match(/fbid=([0-9]+)/) || item.href.match(/\/photos\/a\.[0-9]+\/([0-9]+)/);
         if (fbidMatch && fbidMatch[1]) {
           const fbid = fbidMatch[1];
-          if (!collected.has(fbid)) {
-            collected.set(fbid, {
-              fbid,
-              postUrl: item.href,
-              previewImgUrl: item.previewSrc
-            });
+          if (!seenFbids.has(fbid)) {
+            seenFbids.add(fbid);
+            if (existingFbids.has(fbid)) {
+              skippedCount++;
+            } else if (collected.size < maxItems) {
+              collected.set(fbid, {
+                fbid,
+                postUrl: item.href,
+                previewImgUrl: item.previewSrc
+              });
+            }
           }
         }
       }
 
+      if (collected.size >= maxItems) break;
+
       // Scroll down to load more content
-      await page.evaluate(() => window.scrollBy(0, 1200));
-      await page.waitForTimeout(1500);
+      console.log(`[PhotoScraper] Scrolling page to find un-scraped photos (Found ${collected.size}/${maxItems} new so far, scroll ${scrollAttempts + 1}/${maxScrolls})...`);
+      await page.evaluate(() => window.scrollBy(0, 2000));
+      await page.waitForTimeout(2000);
       scrollAttempts++;
     }
 
-    return Array.from(collected.values());
+    return {
+      items: Array.from(collected.values()),
+      skippedCount,
+      totalDiscovered: seenFbids.size
+    };
   }
 
   /**
@@ -213,7 +232,7 @@ export class PhotoScraper {
     let storyText = '';
 
     try {
-      await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+      await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(2000);
       await this._dismissPopups(page);
 
@@ -227,14 +246,34 @@ export class PhotoScraper {
         imageUrl = highResImg;
       }
 
-      // Extract story text from right column or description
-      const text = await page.$eval(
-        'div[role="dialog"] div[dir="auto"], div[data-ad-preview="message"], div[data-ad-comet-preview="message"]',
-        (div) => div.innerText
-      ).catch(() => '');
+      // Extract story text from candidate elements
+      const candidates = await page.$$eval('div[dir="auto"], span[dir="auto"]', (elements) => {
+        return elements
+          .map((el) => (el.innerText || '').trim())
+          .filter((t) => t.length > 25);
+      }).catch(() => []);
 
-      if (text && text.trim().length > 10) {
-        storyText = text.trim();
+      const ignoredPhrases = [
+        'quên tài khoản',
+        'nội dung do ai',
+        'xem bài viết',
+        'đăng ký',
+        'đăng nhập',
+        'log in',
+        'sign up',
+        'cookie',
+        'tiêu chuẩn cộng đồng'
+      ];
+
+      const filtered = candidates.filter((text) => {
+        const lower = text.toLowerCase();
+        return !ignoredPhrases.some((phrase) => lower.includes(phrase));
+      });
+
+      if (filtered.length > 0) {
+        // Pick the longest text segment which represents the actual story / caption
+        filtered.sort((a, b) => b.length - a.length);
+        storyText = filtered[0];
       }
     } catch (e) {
       console.warn(`[PhotoScraper] In-depth photo parse warning: ${e.message}. Using preview.`);

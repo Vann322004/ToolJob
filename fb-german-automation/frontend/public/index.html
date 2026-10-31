@@ -183,7 +183,7 @@
 
           if (res.success) {
             setActionMsg(res.message);
-            addLog(`Scraper đã kích hoạt thành công.`);
+            addLog(res.message);
             fetchData();
           } else {
             alert(`Lỗi: ${res.error}`);
